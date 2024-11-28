@@ -8,7 +8,6 @@
 // Correo: alu0101501703@ull.edu.es
 // Fecha: 20/11/2024
 // Archivo: docserver.cc
-// Descripcion
 
 #include <iostream>
 #include <string>
@@ -16,9 +15,6 @@
 #include <vector>
 #include <expected>
 #include "tools.h"
-
-
-
 
 int main(int argc, char* argv[]) {
   auto options = parse_args(argc, argv);

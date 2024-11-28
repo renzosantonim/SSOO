@@ -1,4 +1,4 @@
 Hola mundo
-Fichero de Prueba para el primer punto de la práctica
+Fichero de prueba para el primer punto de la práctica
 Todo funciona correctamente
 Profesor ponme un apto por favor
