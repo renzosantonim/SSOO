@@ -1,6 +1,15 @@
+// Universidad de La Laguna
+// Escuela Superior de Ingenieria y Tecnologia
+// Grado en Ingenieria Informatica
+// Asignatura: Sistemas Operativos
+// Curso: 2º
+// Practica 2: Programación de aplicaciones — Servidor de documentación 
+// Autor: Renzo Santoni Moyano
+// Correo: alu0101501703@ull.edu.es
+// Fecha: 20/11/2024
+// Archivo: tools.cc
+
 #include "tools.h"
-
-
 
 void Usage() {
   std::cout << "Uso: docserver [-v | --verbose] [-h | --help] ARCHIVO\n\n";
@@ -74,7 +83,6 @@ std::expected<SafeMap, int> read_all(const std::string& path) {
     return SafeMap{address, file_size};
 }
 
-
 void send_response(std::string_view header, std::string_view body) {
   // Imprimimos el header
   std::cout << header;
@@ -83,5 +91,3 @@ void send_response(std::string_view header, std::string_view body) {
     std::cout << "\n" << body << std::endl;
   }
 }
-
-

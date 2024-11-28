@@ -1,3 +1,14 @@
+// Universidad de La Laguna
+// Escuela Superior de Ingenieria y Tecnologia
+// Grado en Ingenieria Informatica
+// Asignatura: Sistemas Operativos
+// Curso: 2º
+// Practica 2: Programación de aplicaciones — Servidor de documentación 
+// Autor: Renzo Santoni Moyano
+// Correo: alu0101501703@ull.edu.es
+// Fecha: 20/11/2024
+// Archivo: tools.h
+
 #ifndef TOOLS_H
 #define TOOLS_H
 
@@ -12,8 +23,8 @@
 #include <sys/mman.h> 
 #include <unistd.h>   
 #include <cerrno>     
-#include "SafeFD.h"
-#include "SafeMap.h"
+#include "safefd.h"
+#include "safemap.h"
 
 enum class parse_args_errors {
   missing_argument = -1, 
