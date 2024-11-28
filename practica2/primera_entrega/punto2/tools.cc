@@ -22,16 +22,24 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
   std::vector<std::string_view> args(argv + 1, argv + argc);
   program_options options;
   bool has_file_argument = false;
+
+  // Procesa los argumentos de la línea de comandos
   for (auto it = args.begin(), end = args.end(); it != end; ++it) {
     if (*it == "-h" || *it == "--help") {
       options.show_help = true;
       return options;
     } else if (*it == "-v" || *it == "--verbose") {
+      options.verbose = true;
+    } else if (*it == "-p" || *it == "--port") {
+      // El siguiente argumento debe ser el puerto
       if (++it != end) {
-        options.input_filename = *it;  // El nombre del archivo sigue a -v
-        has_file_argument = true;
+        try {
+          options.port = std::stoi(std::string(*it));  // Convertir el puerto a entero
+        } catch (const std::invalid_argument& e) {
+          return std::unexpected(parse_args_errors::missing_argument);  // Si no es un número válido
+        }
       } else {
-        return std::unexpected(parse_args_errors::missing_argument); 
+        return std::unexpected(parse_args_errors::missing_argument);  // Si falta el puerto
       }
     } else if (!it->starts_with("-")) {
       // Si no empieza con "-", asumimos que es el nombre del archivo
@@ -45,49 +53,148 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
       return std::unexpected(parse_args_errors::unknown_option); 
     }
   }
+
   // Si no se ha indicado un archivo, generamos un error fatal
   if (!has_file_argument) {
     return std::unexpected(parse_args_errors::missing_argument);
   }
-  return options; 
+
+  // Si no se especificó un puerto, buscarlo en la variable de entorno
+  if (!options.port.has_value()) {  // Verificamos si el puerto no está configurado
+    const char* port_env = std::getenv("DOCSERVER_PORT");
+    if (port_env) {
+      options.port = static_cast<uint16_t>(std::stoi(port_env));  // Usar el valor de la variable de entorno
+    } else {
+      options.port = 8080;  // Puerto por defecto
+    }
+  }
+
+  return options;
 }
 
-std::expected<SafeMap, int> read_all(const std::string& path) {
-    // Abrimos el archivo con permisos de solo lectura
-    int fd = open(path.c_str(), O_RDONLY);
-    if (fd == -1) {
-        // Devolvemos el código de error si falla la apertura
-        return std::unexpected(errno);
+
+
+std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options) {
+  // Si el modo verbose está activado, mostramos el mensaje de apertura del archivo
+  if (options.verbose) {
+    std::cerr << "open: se abre el archivo \"" << path << "\"" << std::endl;
+  }
+
+  // Abre el archivo en modo solo lectura
+  int fd = open(path.c_str(), O_RDONLY);
+  if (fd == -1) {
+    return std::unexpected(errno); // Error al abrir el archivo
+  }
+
+  // Obtener información sobre el archivo (tamaño)
+  struct stat file_stat;
+  if (fstat(fd, &file_stat) == -1) {
+    close(fd);  // Cierra el descriptor de archivo en caso de error
+    return std::unexpected(errno);
+  }
+  
+  size_t file_size = file_stat.st_size;
+
+  // Si el archivo tiene contenido, lo mapeamos en memoria
+  if (file_size > 0) {
+    if (options.verbose) {
+        std::cerr << "read: se leen " << file_size << " bytes del archivo \"" << path << "\"" << std::endl;
     }
-    // Obtenemos el tamaño del archivo
-    struct stat file_stat;
-    if (fstat(fd, &file_stat) == -1) {
-        close(fd); // Cerramos el descriptor antes de devolver el error
-        return std::unexpected(errno);
-    }
-    size_t file_size = file_stat.st_size;
-    if (file_size == 0) {
-        // Caso especial: el archivo está vacío
-        close(fd);
-        return SafeMap{};
-    }
-    // Mapeamos el archivo en memoria
     void* address = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (address == MAP_FAILED) {
-        close(fd);
-        return std::unexpected(errno);
+      close(fd);  // Cierra el archivo en caso de error al mapear
+      return std::unexpected(errno);
     }
-    // Cerramos el descriptor de archivo porque ya no lo necesitamos
-    close(fd);
-    // Devolvemos un SafeMap con los datos mapeados
-    return SafeMap{address, file_size};
+    close(fd);  // Cierra el archivo después de mapearlo
+    return SafeMap{address, file_size};  // Devolvemos el contenido mapeado
+  } else {
+    close(fd);  // El archivo está vacío, cerramos el archivo
+    return SafeMap{};  // Devolvemos un objeto SafeMap vacío
+  }
 }
 
-void send_response(std::string_view header, std::string_view body) {
-  // Imprimimos el header
-  std::cout << header;
-  // Si el body no está vacío, imprimimos una línea en blanco y luego el body
-  if (!body.empty()) {
-    std::cout << "\n" << body << std::endl;
+int send_response(const SafeFD& socket, std::string_view header, std::string_view body) {
+  // Enviar el encabezado
+  ssize_t sent = send(socket.get(), header.data(), header.size(), 0);
+  if (sent == -1) {
+    int err = errno;
+    if (err == ECONNRESET) {
+      std::cerr << "Error leve: la conexión fue restablecida por el cliente (ECONNRESET)" << std::endl;
+      return err;  // Error leve, no terminamos el programa
+    }
+    std::cerr << "Error fatal al enviar encabezado: " << strerror(err) << std::endl;
+    return err;  // Error fatal, terminamos la función
   }
+  // Si hay cuerpo, enviarlo después de una línea en blanco
+  if (!body.empty()) {
+    sent = send(socket.get(), "\n", 1, 0);  // Enviar la línea en blanco
+    if (sent == -1) {
+      int err = errno;
+      std::cerr << "Error fatal al enviar línea en blanco: " << strerror(err) << std::endl;
+      return err;  // Error fatal, terminamos la función
+    }
+    sent = send(socket.get(), body.data(), body.size(), 0);
+    if (sent == -1) {
+      int err = errno;
+      std::cerr << "Error fatal al enviar cuerpo: " << strerror(err) << std::endl;
+      return err;  // Error fatal, terminamos la función
+    }
+  }
+  return ESUCCESS;  // Todo salió bien
+}
+
+std::string getenv(const std::string& name) {
+  // Obtiene el valor de la variable de entorno
+  char* value = std::getenv(name.c_str());
+  if (value) {
+    return std::string(value);  // Si existe la variable de entorno, devuelve su valor
+  } else {
+    return std::string();  // Si no existe, devuelve una cadena vacía
+  }
+}
+
+std::expected<SafeFD, int> make_socket(uint16_t port, const program_options& options) {
+  // Si el modo verbose está activado, mostramos un mensaje sobre la creación del socket
+  if (options.verbose) {
+    std::cerr << "socket: creando un socket en el puerto " << port << std::endl;
+  }
+  // Crear el socket
+  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (sockfd == -1) {
+    return std::unexpected(errno);  // Error al crear el socket
+  }
+  // Configurar la dirección del socket
+  sockaddr_in address {};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(port);  // Convertir el puerto a formato de red
+  address.sin_addr.s_addr = INADDR_ANY;  // Escuchar en todas las interfaces
+  // Asignar la dirección al socket
+  if (bind(sockfd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) == -1) {
+    close(sockfd);  // Cerramos el socket en caso de error
+    return std::unexpected(errno);  // Error al asociar la dirección
+  }
+  return SafeFD(sockfd);  // Devolvemos el descriptor de archivo envuelto en SafeFD
+}
+
+int listen_connection(const SafeFD& socket, const program_options& options) {
+  // Si el modo verbose está activado, mostramos un mensaje sobre la escucha del socket
+  if (options.verbose) {
+    std::cerr << "listen: poniendo el socket a la escucha" << std::endl;
+  }
+  // Poner el socket a la escucha
+  int result = listen(socket.get(), SOMAXCONN);
+  if (result == -1) {
+    return errno;  // Error al poner el socket a la escucha
+  }
+  return ESUCCESS;  // Éxito
+}
+
+std::expected<SafeFD, int> accept_connection(const SafeFD& socket, sockaddr_in& client_addr) {
+  socklen_t client_addr_len = sizeof(client_addr);
+  // Aceptar una conexión entrante
+  int client_fd = accept(socket.get(), reinterpret_cast<struct sockaddr*>(&client_addr), &client_addr_len);
+  if (client_fd == -1) {
+      return std::unexpected(errno);  // Error al aceptar la conexión
+  }
+  return SafeFD(client_fd);  // Devolvemos el descriptor de archivo del cliente envuelto en SafeFD
 }
