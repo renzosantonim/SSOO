@@ -12,10 +12,11 @@
 #include "tools.h"
 
 void Usage() {
-  std::cout << "Uso: docserver [-v | --verbose] [-h | --help] ARCHIVO\n\n";
-  std::cout << "Opciones:\n";
-  std::cout << "  -h, --help        Muestra este mensaje de ayuda\n";
-  std::cout << "  -v, --verbose     Activa el modo detallado de ejecución\n";
+  std::cerr << "Uso: docserver [-v | --verbose] [-h | --help] [-p <puerto> | --port <puerto>] ARCHIVO" << std::endl;
+  std::cerr << "  -h, --help        Mostrar esta ayuda" << std::endl;
+  std::cerr << "  -v, --verbose     Activar el modo detallado" << std::endl;
+  std::cerr << "  -p, --port        Puerto en el que escuchar (por defecto 8080)" << std::endl;
+  std::cerr << "  ARCHIVO           Archivo que se servirá" << std::endl;
 }
 
 std::expected<program_options, parse_args_errors> parse_args(int argc, char* argv[]) {

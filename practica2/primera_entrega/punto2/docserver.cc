@@ -9,62 +9,70 @@
 // Fecha: 20/11/2024
 // Archivo: docserver.cc
 
-#include <iostream>
-#include <string>
-#include <fstream>
-#include <vector>
-#include <expected>
 #include "tools.h"
 
 int main(int argc, char* argv[]) {
-  auto options_result = parse_args(argc, argv);
-  if (options_result.has_value()) {
-    auto options = options_result.value();
+    // Procesamos los argumentos
+    auto opts = parse_args(argc, argv);
 
-    // Usar el puerto configurado (ya sea de los argumentos o de la variable de entorno)
-    uint16_t port = options.port.value();  // Se asegura de que el puerto está configurado
-
-    // Crear socket
-    auto socket = make_socket(port, options);
-    if (!socket.has_value()) {
-      std::cerr << "Error al crear socket: " << strerror(socket.error()) << std::endl;
-      return socket.error();  // Termina si hay error
+    // Si hubo un error al procesar los argumentos, mostramos el error y usamos Usage()
+    if (!opts) {
+        if (opts.error() == parse_args_errors::missing_argument) {
+            std::cerr << "Error: Argumento faltante." << std::endl;
+        } else if (opts.error() == parse_args_errors::unknown_option) {
+            std::cerr << "Error: Opción desconocida." << std::endl;
+        }
+        return 1;  // Terminar el programa con error
     }
 
-    // Poner el socket a la escucha
-    int result = listen_connection(socket.value(), options);
-    if (result != ESUCCESS) {
-      std::cerr << "Error al poner el socket a la escucha: " << strerror(result) << std::endl;
-      return result;  // Termina si no se puede escuchar
+    // Si el usuario pidió la ayuda (-h o --help)
+    if (opts->show_help) {
+        Usage();  // Mostrar el mensaje de ayuda
+        return 0;  // Terminar el programa con éxito
     }
 
-    // Aceptar una conexión
-    sockaddr_in client_addr;
-    auto client_socket = accept_connection(socket.value(), client_addr);
-    if (!client_socket.has_value()) {
-      std::cerr << "Error al aceptar conexión: " << strerror(client_socket.error()) << std::endl;
-      return client_socket.error();  // Termina si no se puede aceptar la conexión
+    // Si no hay errores y no se pidió ayuda, el servidor se ejecuta normalmente
+
+    // Modo detallado (verbose)
+    if (opts->verbose) {
+        std::cerr << "Modo detallado activado." << std::endl;
     }
 
-    // Preparar la respuesta (ejemplo, como 404 Not Found)
-    std::string header = "HTTP/1.1 404 Not Found";
-    std::string body = "<html><body><h1>404 Not Found</h1></body></html>";
-
-    // Enviar la respuesta
-    int send_result = send_response(client_socket.value(), header, body);
-    if (send_result != ESUCCESS) {
-      std::cerr << "Error al enviar la respuesta: " << strerror(send_result) << std::endl;
-      return send_result;  // Termina si hay error al enviar la respuesta
+    // Intentamos crear el socket con el puerto especificado
+    auto socket = make_socket(opts->port.value_or(8080), *opts);
+    if (!socket) {
+        std::cerr << "Error al crear el socket: " << strerror(errno) << std::endl;
+        return 1;
     }
 
-    // El objeto client_socket se destruye aquí, y su destructor cerrará automáticamente la conexión
-    std::cout << "Conexión cerrada automáticamente después de enviar la respuesta." << std::endl;
+    // Ponemos el socket a escuchar
+    if (listen_connection(*socket, *opts) != ESUCCESS) {
+        std::cerr << "Error al poner el socket a la escucha: " << strerror(errno) << std::endl;
+        return 1;
+    }
 
-    return ESUCCESS;  // Todo salió bien
-  } else {
-    std::cerr << "Error al procesar los argumentos: " << strerror(static_cast<int>(options_result.error())) << std::endl;
-    return static_cast<int>(options_result.error());  // Termina si hay error en los argumentos
-  }
+    // Bucle para aceptar y manejar conexiones entrantes
+    while (true) {
+        sockaddr_in client_addr;
+        auto client_socket = accept_connection(*socket, client_addr);
+
+        if (!client_socket) {
+            std::cerr << "Error al aceptar la conexión: " << strerror(errno) << std::endl;
+            continue;  // Continuamos esperando nuevas conexiones
+        }
+
+        // Leemos el archivo para enviarlo
+        auto file_content = read_all(opts->input_filename, *opts);
+        if (!file_content) {
+            // En caso de error al leer el archivo
+            send_response(*client_socket, "HTTP/1.1 404 Not Found", "Archivo no encontrado");
+        } else {
+            // Enviamos la respuesta con el contenido del archivo
+            send_response(*client_socket, "HTTP/1.1 200 OK", file_content->get());
+        }
+    }
+    return 0;
 }
+
 
 
