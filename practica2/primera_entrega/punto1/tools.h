@@ -104,7 +104,7 @@ void send_response(std::string_view header, std::string_view body = {}) {
   std::cout << header;
   // Si el body no está vacío, imprimimos una línea en blanco y luego el body
   if (!body.empty()) {
-    std::cout << "\n" << body;
+    std::cout << "\n" << body << std::endl;
   }
 }
 

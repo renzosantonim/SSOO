@@ -1,3 +1,4 @@
 Hola mundo
-Fichero de Prueba para esta mierda
-Me quiero matar
+Fichero de Prueba para el primer punto de la práctica
+Todo funciona correctamente
+Profesor ponme un apto por favor
