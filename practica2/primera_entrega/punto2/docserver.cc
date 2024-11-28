@@ -17,9 +17,6 @@
 #include <expected>
 #include "tools.h"
 
-
-
-
 int main(int argc, char* argv[]) {
   auto options = parse_args(argc, argv);
   if (!options) {
