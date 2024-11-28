@@ -27,6 +27,7 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
       options.show_help = true;
       return options;
     } else if (*it == "-v" || *it == "--verbose") {
+      options.verbose = true;
       if (++it != end) {
         options.input_filename = *it;  // El nombre del archivo sigue a -v
         has_file_argument = true;
@@ -52,35 +53,39 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
   return options; 
 }
 
-std::expected<SafeMap, int> read_all(const std::string& path) {
-    // Abrimos el archivo con permisos de solo lectura
-    int fd = open(path.c_str(), O_RDONLY);
-    if (fd == -1) {
-        // Devolvemos el código de error si falla la apertura
-        return std::unexpected(errno);
-    }
-    // Obtenemos el tamaño del archivo
-    struct stat file_stat;
-    if (fstat(fd, &file_stat) == -1) {
-        close(fd); // Cerramos el descriptor antes de devolver el error
-        return std::unexpected(errno);
-    }
-    size_t file_size = file_stat.st_size;
-    if (file_size == 0) {
-        // Caso especial: el archivo está vacío
-        close(fd);
-        return SafeMap{};
-    }
-    // Mapeamos el archivo en memoria
-    void* address = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (address == MAP_FAILED) {
-        close(fd);
-        return std::unexpected(errno);
-    }
-    // Cerramos el descriptor de archivo porque ya no lo necesitamos
+std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options) {
+  // Si el modo verbose está activado, mostramos el mensaje de apertura del archivo
+  if (options.verbose) {
+    std::cerr << "open: se abre el archivo \"" << path << "\"" << std::endl;
+  }
+  // Abrimos el archivo con permisos de solo lectura
+  int fd = open(path.c_str(), O_RDONLY);
+  if (fd == -1) {
+    // Devolvemos el código de error si falla la apertura
+    return std::unexpected(errno);
+  }
+  // Obtenemos el tamaño del archivo
+  struct stat file_stat;
+  if (fstat(fd, &file_stat) == -1) {
+    close(fd); // Cerramos el descriptor antes de devolver el error
+    return std::unexpected(errno);
+  }
+  size_t file_size = file_stat.st_size;
+  if (file_size == 0) {
+    // Caso especial: el archivo está vacío
     close(fd);
-    // Devolvemos un SafeMap con los datos mapeados
-    return SafeMap{address, file_size};
+    return SafeMap{};
+  }
+  // Mapeamos el archivo en memoria
+  void* address = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (address == MAP_FAILED) {
+    close(fd);
+    return std::unexpected(errno);
+  }
+  // Cerramos el descriptor de archivo porque ya no lo necesitamos
+  close(fd);
+  // Devolvemos un SafeMap con los datos mapeados
+  return SafeMap{address, file_size};
 }
 
 void send_response(std::string_view header, std::string_view body) {

@@ -33,6 +33,7 @@ enum class parse_args_errors {
 
 struct program_options {
   bool show_help = false;
+  bool verbose = false;
   std::string input_filename;
   std::vector<std::string> additional_args;
 };
@@ -41,7 +42,7 @@ void Usage();
 
 std::expected<program_options, parse_args_errors> parse_args(int argc, char* argv[]);
 
-std::expected<SafeMap, int> read_all(const std::string& path);
+std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options);
 
 void send_response(std::string_view header, std::string_view body = {});
 

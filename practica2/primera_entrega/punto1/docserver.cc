@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  auto file_map = read_all(options->input_filename);
+  auto file_map = read_all(options->input_filename, *options);
   if (!file_map) {
     send_response("403 Forbidden\n");
     return 1;
