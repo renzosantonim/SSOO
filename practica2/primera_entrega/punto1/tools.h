@@ -34,6 +34,7 @@ enum class parse_args_errors {
 struct program_options {
   bool show_help = false;
   bool verbose = false;
+  bool check_file_size = false;  // Nueva opción -w de modificación
   std::string input_filename;
   std::vector<std::string> additional_args;
 };

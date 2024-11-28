@@ -1,3 +1,4 @@
+// Texto de menos de 1024 bytes
 Hola mundo
 Fichero de prueba para el primer punto de la práctica
 Todo funciona correctamente

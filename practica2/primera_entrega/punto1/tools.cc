@@ -29,11 +29,13 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
     } else if (*it == "-v" || *it == "--verbose") {
       options.verbose = true;
       if (++it != end) {
-        options.input_filename = *it;  // El nombre del archivo sigue a -v
+        options.input_filename = *it;   // El nombre del archivo sigue a -v
         has_file_argument = true;
       } else {
         return std::unexpected(parse_args_errors::missing_argument); 
       }
+    } else if (*it == "-w") {           // Nueva opción -w de modificación
+      options.check_file_size = true;
     } else if (!it->starts_with("-")) {
       // Si no empieza con "-", asumimos que es el nombre del archivo
       if (!has_file_argument) {
@@ -54,39 +56,39 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
 }
 
 std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options) {
-  // Si el modo verbose está activado, mostramos el mensaje de apertura del archivo
   if (options.verbose) {
     std::cerr << "open: se abre el archivo \"" << path << "\"" << std::endl;
   }
-  // Abrimos el archivo con permisos de solo lectura
+
   int fd = open(path.c_str(), O_RDONLY);
   if (fd == -1) {
-    // Devolvemos el código de error si falla la apertura
-    return std::unexpected(errno);
+    return std::unexpected(errno);  // Error de apertura
   }
-  // Obtenemos el tamaño del archivo
+
   struct stat file_stat;
   if (fstat(fd, &file_stat) == -1) {
-    close(fd); // Cerramos el descriptor antes de devolver el error
-    return std::unexpected(errno);
-  }
-  size_t file_size = file_stat.st_size;
-  if (file_size == 0) {
-    // Caso especial: el archivo está vacío
     close(fd);
-    return SafeMap{};
+    return std::unexpected(errno);  // Error en fstat
   }
-  // Mapeamos el archivo en memoria
+
+  size_t file_size = file_stat.st_size;
+
+  // Verificar si el archivo es demasiado pequeño (menos de 1024 bytes)
+  if (file_size < 1024) {
+    close(fd);
+    return std::unexpected(EINVAL);  // Error personalizado para archivos demasiado pequeños
+  }
+
   void* address = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
   if (address == MAP_FAILED) {
     close(fd);
-    return std::unexpected(errno);
+    return std::unexpected(errno);  // Error en mmap
   }
-  // Cerramos el descriptor de archivo porque ya no lo necesitamos
+
   close(fd);
-  // Devolvemos un SafeMap con los datos mapeados
   return SafeMap{address, file_size};
 }
+
 
 void send_response(std::string_view header, std::string_view body) {
   // Imprimimos el header

@@ -30,6 +30,12 @@ int main(int argc, char* argv[]) {
 
   auto file_map = read_all(options->input_filename, *options);
   if (!file_map) {
+    // Comprobamos si el error es el específico para un archivo demasiado pequeño
+    if (file_map.error() == EINVAL) {
+      std::cerr << "Error fatal: El archivo es demasiado pequeño para procesarse (menos de 1024 bytes)" << std::endl;
+      return 1;  // Terminamos el programa con un error
+    }
+
     send_response("403 Forbidden\n");
     return 1;
   }
@@ -41,4 +47,3 @@ int main(int argc, char* argv[]) {
 
   return 0;
 }
-
