@@ -65,14 +65,15 @@ int main(int argc, char* argv[]) {
         auto file_content = read_all(opts->input_filename, *opts);
         if (!file_content) {
             // En caso de error al leer el archivo
-            send_response(*client_socket, "HTTP/1.1 404 Not Found", "Archivo no encontrado");
+            send_response(*client_socket, "HTTP/1.1 404 Not Found", "Archivo no encontrado", *opts);
         } else {
             // Enviamos la respuesta con el contenido del archivo
-            send_response(*client_socket, "HTTP/1.1 200 OK", file_content->get());
+            send_response(*client_socket, "HTTP/1.1 200 OK", file_content->get(), *opts);
         }
     }
     return 0;
 }
+
 
 
 

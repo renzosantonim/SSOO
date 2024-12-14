@@ -11,26 +11,38 @@
 
 #include "tools.h"
 
+// Muestra el uso del programa (ayuda).
 void Usage() {
-  std::cerr << "Uso: docserver [-v | --verbose] [-h | --help] [-p <puerto> | --port <puerto>] ARCHIVO" << std::endl;
-  std::cerr << "  -h, --help        Mostrar esta ayuda" << std::endl;
-  std::cerr << "  -v, --verbose     Activar el modo detallado" << std::endl;
-  std::cerr << "  -p, --port        Puerto en el que escuchar (por defecto 8080)" << std::endl;
-  std::cerr << "  ARCHIVO           Archivo que se servirá" << std::endl;
+  std::cerr << "Uso: docserver [-v | --verbose] [-h | --help] [-p <puerto> | --port <puerto>] [-b <ruta> | --base <ruta>] ARCHIVO" << std::endl;
+  std::cerr << "  -h, --help                Mostrar esta ayuda" << std::endl;
+  std::cerr << "  -v, --verbose             Activar el modo detallado" << std::endl;
+  std::cerr << "  -p, --port <puerto>       Puerto en el que escuchar (por defecto 8080)" << std::endl;
+  std::cerr << "  -b, --base <ruta>         Directorio base desde el cual se sirven los archivos (por defecto el directorio de trabajo)" << std::endl;
+  std::cerr << "  ARCHIVO                   Nombre del archivo que se servirá" << std::endl;
+  std::cerr << std::endl;
+  std::cerr << "El servidor escuchará en el puerto indicado y servirá el archivo especificado." << std::endl;
+  std::cerr << "Si no se proporciona un archivo, el servidor devolverá un error 404." << std::endl;
+  std::cerr << "Los archivos deben estar dentro del directorio base especificado." << std::endl;
 }
 
+// Función que parsea los argumentos de la línea de comandos.
 std::expected<program_options, parse_args_errors> parse_args(int argc, char* argv[]) {
   std::vector<std::string_view> args(argv + 1, argv + argc);
   program_options options;
 
   // Procesa los argumentos de la línea de comandos
   for (auto it = args.begin(), end = args.end(); it != end; ++it) {
+    // Mostrar ayuda si se encuentra -h o --help
     if (*it == "-h" || *it == "--help") {
       options.show_help = true;
       return options;
-    } else if (*it == "-v" || *it == "--verbose") {
+    } 
+    // Activar modo detallado si se encuentra -v o --verbose
+    else if (*it == "-v" || *it == "--verbose") {
       options.verbose = true;
-    } else if (*it == "-p" || *it == "--port") {
+    } 
+    // Configurar puerto si se encuentra -p o --port
+    else if (*it == "-p" || *it == "--port") {
       if (++it != end) {
         try {
           options.port = std::stoi(std::string(*it));  // Convertir el puerto a entero
@@ -40,13 +52,17 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
       } else {
         return std::unexpected(parse_args_errors::missing_argument);
       }
-    } else if (*it == "-b" || *it == "--base") {
+    } 
+    // Configurar directorio base si se encuentra -b o --base
+    else if (*it == "-b" || *it == "--base") {
       if (++it != end) {
         options.base_directory = std::string(*it);  // Establecer el directorio base
       } else {
         return std::unexpected(parse_args_errors::missing_argument);
       }
-    } else {
+    } 
+    // Si se encuentra una opción desconocida, devolver error
+    else {
       return std::unexpected(parse_args_errors::unknown_option); 
     }
   }
@@ -64,14 +80,14 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
   return options;
 }
 
-
+// Lee todo el contenido de un archivo en memoria.
 std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options) {
   // Si el modo verbose está activado, mostramos el mensaje de apertura del archivo
   if (options.verbose) {
     std::cerr << "open: se abre el archivo \"" << path << "\"" << std::endl;
   }
 
-  // Abre el archivo en modo solo lectura
+  // Abrir el archivo en modo solo lectura
   int fd = open(path.c_str(), O_RDONLY);
   if (fd == -1) {
     return std::unexpected(errno); // Error al abrir el archivo
@@ -80,7 +96,7 @@ std::expected<SafeMap, int> read_all(const std::string& path, const program_opti
   // Obtener información sobre el archivo (tamaño)
   struct stat file_stat;
   if (fstat(fd, &file_stat) == -1) {
-    close(fd);  // Cierra el descriptor de archivo en caso de error
+    close(fd);  // Cerrar el descriptor de archivo en caso de error
     return std::unexpected(errno);
   }
   
@@ -93,10 +109,10 @@ std::expected<SafeMap, int> read_all(const std::string& path, const program_opti
     }
     void* address = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
     if (address == MAP_FAILED) {
-      close(fd);  // Cierra el archivo en caso de error al mapear
+      close(fd);  // Cerrar el archivo en caso de error al mapear
       return std::unexpected(errno);
     }
-    close(fd);  // Cierra el archivo después de mapearlo
+    close(fd);  // Cerrar el archivo después de mapearlo
     return SafeMap{address, file_size};  // Devolvemos el contenido mapeado
   } else {
     close(fd);  // El archivo está vacío, cerramos el archivo
@@ -104,6 +120,7 @@ std::expected<SafeMap, int> read_all(const std::string& path, const program_opti
   }
 }
 
+// Envía una respuesta HTTP al cliente.
 int send_response(const SafeFD& socket, std::string_view header, std::string_view body) {
   // Enviar el encabezado
   ssize_t sent = send(socket.get(), header.data(), header.size(), 0);
@@ -134,6 +151,7 @@ int send_response(const SafeFD& socket, std::string_view header, std::string_vie
   return ESUCCESS;  // Todo salió bien
 }
 
+// Obtiene el valor de una variable de entorno.
 std::string getenv(const std::string& name) {
   // Obtiene el valor de la variable de entorno
   char* value = std::getenv(name.c_str());
@@ -144,6 +162,7 @@ std::string getenv(const std::string& name) {
   }
 }
 
+// Crea un socket para el servidor.
 std::expected<SafeFD, int> make_socket(uint16_t port, const program_options& options) {
   // Si el modo verbose está activado, mostramos un mensaje sobre la creación del socket
   if (options.verbose) {
@@ -167,6 +186,7 @@ std::expected<SafeFD, int> make_socket(uint16_t port, const program_options& opt
   return SafeFD(sockfd);  // Devolvemos el descriptor de archivo envuelto en SafeFD
 }
 
+// Pone el socket a escuchar conexiones entrantes.
 int listen_connection(const SafeFD& socket, const program_options& options) {
   // Si el modo verbose está activado, mostramos un mensaje sobre la escucha del socket
   if (options.verbose) {
@@ -180,16 +200,18 @@ int listen_connection(const SafeFD& socket, const program_options& options) {
   return ESUCCESS;  // Éxito
 }
 
+// Acepta una conexión entrante.
 std::expected<SafeFD, int> accept_connection(const SafeFD& socket, sockaddr_in& client_addr) {
   socklen_t client_addr_len = sizeof(client_addr);
   // Aceptar una conexión entrante
   int client_fd = accept(socket.get(), reinterpret_cast<struct sockaddr*>(&client_addr), &client_addr_len);
   if (client_fd == -1) {
-      return std::unexpected(errno);  // Error al aceptar la conexión
+    return std::unexpected(errno);  // Error al aceptar la conexión
   }
   return SafeFD(client_fd);  // Devolvemos el descriptor de archivo del cliente envuelto en SafeFD
 }
 
+// Obtiene la ruta completa del archivo a servir.
 std::string get_full_path(const program_options& options, const std::string& filename) {
   if (options.base_directory) {
     return *options.base_directory + "/" + filename;  // Combina el directorio base con el archivo

@@ -10,89 +10,86 @@
 // Archivo: docserver.cc
 
 #include "tools.h"
-#include <cstring>
-#include <unistd.h>
 
+// Función principal del servidor de documentación.
 int main(int argc, char* argv[]) {
-    // Procesamos los argumentos
-    auto opts = parse_args(argc, argv);
+  // Parsear los argumentos de la línea de comandos.
+  auto options = parse_args(argc, argv);
+  // Si ocurre un error en los argumentos, mostrar el uso y salir.
+  if (!options.has_value()) {
+    Usage();
+    return 1;
+  }
 
-    // Si hubo un error al procesar los argumentos, mostramos el error y usamos Usage()
-    if (!opts) {
-        if (opts.error() == parse_args_errors::missing_argument) {
-            std::cerr << "Error: Argumento faltante." << std::endl;
-        } else if (opts.error() == parse_args_errors::unknown_option) {
-            std::cerr << "Error: Opción desconocida." << std::endl;
-        }
-        return 1;  // Terminar el programa con error
+  // Crear el socket para la comunicación.
+  auto socket_result = make_socket(options.value().port.value_or(8080), options.value());
+  // Si hay un error al crear el socket, mostrar el error y salir.
+  if (!socket_result.has_value()) {  // Usar has_value() en lugar de has_error()
+    std::cerr << "Error al crear el socket: " << strerror(socket_result.error()) << std::endl;
+    return 1;
+  }
+
+  // Mover el socket creado al objeto server_socket.
+  SafeFD server_socket = std::move(socket_result.value());  // Usar std::move
+
+  // Poner el socket a escuchar conexiones entrantes.
+  if (listen_connection(server_socket, options.value()) != ESUCCESS) {
+    std::cerr << "Error al poner el socket a escuchar" << std::endl;
+    return 1;
+  }
+
+  sockaddr_in client_addr;
+  while (true) {
+    // Aceptar una conexión entrante.
+    auto client_socket_result = accept_connection(server_socket, client_addr);
+    // Si ocurre un error al aceptar la conexión, mostrar el error y continuar con la siguiente conexión.
+    if (!client_socket_result.has_value()) {  // Usar has_value() en lugar de has_error()
+      std::cerr << "Error al aceptar conexión: " << strerror(client_socket_result.error()) << std::endl;
+      continue;
     }
 
-    // Si el usuario pidió la ayuda (-h o --help)
-    if (opts->show_help) {
-        Usage();  // Mostrar el mensaje de ayuda
-        return 0;  // Terminar el programa con éxito
+    // Mover el socket del cliente al objeto client_socket.
+    SafeFD client_socket = std::move(client_socket_result.value());  // Usar std::move
+
+    // Recibir la solicitud del cliente.
+    char buffer[1024];
+    ssize_t received = recv(client_socket.get(), buffer, sizeof(buffer) - 1, 0);
+    // Si no se recibe nada o hay un error, ignoramos la conexión.
+    if (received <= 0) {
+      continue;
+    }
+    buffer[received] = '\0';  // Aseguramos que el buffer esté bien terminado.
+
+    // Procesar la solicitud (extraer el archivo solicitado).
+    std::string request(buffer);
+    size_t start_pos = request.find("GET /");
+    size_t end_pos = request.find(" HTTP/1.1");
+
+    // Si la solicitud no es válida, devolver un error 400 (Bad Request).
+    if (start_pos == std::string::npos || end_pos == std::string::npos) {
+      send_response(client_socket, "HTTP/1.1 400 Bad Request\r\n\r\n");
+      close(client_socket.get());
+      continue;
     }
 
-    // Modo detallado (verbose)
-    if (opts->verbose) {
-        std::cerr << "Modo detallado activado." << std::endl;
+    // Extraer el archivo solicitado de la petición.
+    std::string file_requested = request.substr(start_pos + 5, end_pos - (start_pos + 5));
+    // Obtener la ruta completa del archivo solicitado.
+    std::string full_path = get_full_path(options.value(), file_requested);
+
+    // Intentar leer el contenido del archivo solicitado.
+    auto file_content = read_all(full_path, options.value());
+    // Si el archivo existe, devolverlo con un código 200 (OK).
+    if (file_content.has_value()) {
+      send_response(client_socket, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n", 
+                    std::string_view(static_cast<const char*>(file_content.value().get().data()), file_content.value().size()));
+    } else {
+      // Si el archivo no existe, devolver un error 404 (Not Found).
+      send_response(client_socket, "HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
-    // Intentamos crear el socket con el puerto especificado
-    auto socket = make_socket(opts->port.value_or(8080), *opts);
-    if (!socket) {
-        std::cerr << "Error al crear el socket: " << strerror(errno) << std::endl;
-        return 1;
-    }
-
-    // Ponemos el socket a escuchar
-    if (listen_connection(*socket, *opts) != ESUCCESS) {
-        std::cerr << "Error al poner el socket a la escucha: " << strerror(errno) << std::endl;
-        return 1;
-    }
-
-    // Bucle para aceptar y manejar conexiones entrantes
-    while (true) {
-        sockaddr_in client_addr;
-        auto client_socket = accept_connection(*socket, client_addr);
-
-        if (!client_socket) {
-            std::cerr << "Error al aceptar la conexión: " << strerror(errno) << std::endl;
-            continue;  // Continuamos esperando nuevas conexiones
-        }
-
-        // Leemos la solicitud del cliente (suponiendo que es una solicitud HTTP GET)
-        char buffer[1024];
-        ssize_t bytes_received = recv(client_socket->get(), buffer, sizeof(buffer), 0);
-
-        if (bytes_received == -1) {
-            std::cerr << "Error al leer la solicitud del cliente: " << strerror(errno) << std::endl;
-            continue;
-        }
-
-        // Convertimos la solicitud a una cadena
-        std::string request(buffer, bytes_received);
-
-        // Buscamos el archivo solicitado en la petición HTTP
-        std::string filename;
-        if (request.find("GET /") != std::string::npos) {
-            size_t start_pos = request.find("GET /") + 5;  // "GET /" tiene 5 caracteres
-            size_t end_pos = request.find(" HTTP/");
-            filename = request.substr(start_pos, end_pos - start_pos);
-
-            std::string file_path = get_full_path(*opts, filename);
-
-            // Leemos el archivo para enviarlo
-            auto file_content = read_all(file_path, *opts);
-            if (!file_content) {
-                // En caso de error al leer el archivo
-                send_response(*client_socket, "HTTP/1.1 404 Not Found", "Archivo no encontrado");
-            } else {
-                // Enviamos la respuesta con el contenido del archivo
-                send_response(*client_socket, "HTTP/1.1 200 OK", file_content->get());
-            }
-        }
-    }
-
-    return 0;
+    // Cerramos la conexión con el cliente.
+    close(client_socket.get());
+  }
+  return 0;
 }

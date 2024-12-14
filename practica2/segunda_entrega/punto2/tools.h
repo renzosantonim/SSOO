@@ -26,6 +26,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>     
 #include <optional>
+#include <filesystem>
 #include "safefd.h"
 #include "safemap.h"
 
@@ -39,10 +40,12 @@ enum class parse_args_errors {
 struct program_options {
   bool show_help = false;
   bool verbose = false;
+  bool show_full_path = false;  // Nueva opción para activar el envío de la ruta completa
   std::string input_filename;
   std::vector<std::string> additional_args;
   std::optional<uint16_t> port = {};  // Se añade el campo port con valor predeterminado 8080
 };
+
 
 void Usage();
 
@@ -50,7 +53,7 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
 
 std::expected<SafeMap, int> read_all(const std::string& path, const program_options& options);
 
-int send_response(const SafeFD& socket, std::string_view header, std::string_view body = {});
+int send_response(const SafeFD& socket, std::string_view header, std::string_view body, const program_options& options);
 
 std::string getenv(const std::string& name);
 

@@ -16,7 +16,6 @@
 #include <string>
 #include <sys/mman.h>
 
-
 class SafeMap {
  public:
   SafeMap() : sv_{}, size_{0} {}

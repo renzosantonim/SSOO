@@ -31,6 +31,8 @@ std::expected<program_options, parse_args_errors> parse_args(int argc, char* arg
       return options;
     } else if (*it == "-v" || *it == "--verbose") {
       options.verbose = true;
+    } else if (*it == "-x") {  // Procesar la nueva opción -x
+      options.show_full_path = true;
     } else if (*it == "-p" || *it == "--port") {
       // El siguiente argumento debe ser el puerto
       if (++it != end) {
@@ -114,35 +116,52 @@ std::expected<SafeMap, int> read_all(const std::string& path, const program_opti
   }
 }
 
-int send_response(const SafeFD& socket, std::string_view header, std::string_view body) {
-  // Enviar el encabezado
-  ssize_t sent = send(socket.get(), header.data(), header.size(), 0);
-  if (sent == -1) {
-    int err = errno;
-    if (err == ECONNRESET) {
-      std::cerr << "Error leve: la conexión fue restablecida por el cliente (ECONNRESET)" << std::endl;
-      return err;  // Error leve, no terminamos el programa
+int send_response(const SafeFD& socket, std::string_view header, std::string_view body, const program_options& options) {
+    // Si la opción -x está activada, agregamos la ruta completa al encabezado
+    if (options.show_full_path) {
+        // Obtenemos la ruta completa usando std::filesystem
+        std::string full_path = "File path: " + std::filesystem::absolute(options.input_filename).string();
+        std::string header_with_full_path = std::string(header) + "\n" + full_path;
+        header = header_with_full_path;  // Modificamos el encabezado
     }
-    std::cerr << "Error fatal al enviar encabezado: " << strerror(err) << std::endl;
-    return err;  // Error fatal, terminamos la función
-  }
-  // Si hay cuerpo, enviarlo después de una línea en blanco
-  if (!body.empty()) {
-    sent = send(socket.get(), "\n", 1, 0);  // Enviar la línea en blanco
+
+    // Depuración: Imprimir el encabezado y el cuerpo
+    std::cerr << "Encabezado a enviar:\n" << header << std::endl;
+    if (!body.empty()) {
+        std::cerr << "Cuerpo a enviar:\n" << body << std::endl;
+    }
+
+    // Enviar el encabezado
+    ssize_t sent = send(socket.get(), header.data(), header.size(), 0);
     if (sent == -1) {
-      int err = errno;
-      std::cerr << "Error fatal al enviar línea en blanco: " << strerror(err) << std::endl;
-      return err;  // Error fatal, terminamos la función
+        int err = errno;
+        if (err == ECONNRESET) {
+            std::cerr << "Error leve: la conexión fue restablecida por el cliente (ECONNRESET)" << std::endl;
+            return err;  // Error leve, no terminamos el programa
+        }
+        std::cerr << "Error fatal al enviar encabezado: " << strerror(err) << std::endl;
+        return err;  // Error fatal, terminamos la función
     }
-    sent = send(socket.get(), body.data(), body.size(), 0);
-    if (sent == -1) {
-      int err = errno;
-      std::cerr << "Error fatal al enviar cuerpo: " << strerror(err) << std::endl;
-      return err;  // Error fatal, terminamos la función
+
+    // Si hay cuerpo, enviarlo después de una línea en blanco
+    if (!body.empty()) {
+        sent = send(socket.get(), "\n", 1, 0);  // Enviar la línea en blanco
+        if (sent == -1) {
+            int err = errno;
+            std::cerr << "Error fatal al enviar línea en blanco: " << strerror(err) << std::endl;
+            return err;  // Error fatal, terminamos la función
+        }
+        sent = send(socket.get(), body.data(), body.size(), 0);
+        if (sent == -1) {
+            int err = errno;
+            std::cerr << "Error fatal al enviar cuerpo: " << strerror(err) << std::endl;
+            return err;  // Error fatal, terminamos la función
+        }
     }
-  }
-  return ESUCCESS;  // Todo salió bien
+
+    return ESUCCESS;  // Todo salió bien
 }
+
 
 std::string getenv(const std::string& name) {
   // Obtiene el valor de la variable de entorno
