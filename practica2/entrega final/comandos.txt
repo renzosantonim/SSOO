@@ -1,0 +1,8 @@
+// COMANDOS PARA PROBAR EL PROGRAMA
+
+// EJECUCIÓN
+./docserver -b ~/SSOO/practica2/segunda_entrega/punto3
+
+// CLIENTE
+socat - TCP:127.0.0.1:8080
+GET /prueba.txt HTTP/1.1
