@@ -5,4 +5,4 @@
 
 // CLIENTE
 socat - TCP:127.0.0.1:8080
-GET /prueba.txt HTTP/1.1
+  GET /prueba.txt HTTP/1.1

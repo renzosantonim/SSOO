@@ -177,8 +177,8 @@ std::expected<SafeFD, int> make_socket(uint16_t port, const program_options& opt
   sockaddr_in address {};
   address.sin_family = AF_INET;
   address.sin_port = htons(port);  // Convertir el puerto a formato de red
-  address.sin_addr.s_addr = INADDR_ANY;  // Escuchar en todas las interfaces
-  // Asignar la dirección al socket
+  address.sin_addr.s_addr = INADDR_ANY;  // Escuchar conexiones en todas las interfaces de red disponibles
+  // Asociar el socket con la dirección y puerto configurados.
   if (bind(sockfd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) == -1) {
     close(sockfd);  // Cerramos el socket en caso de error
     return std::unexpected(errno);  // Error al asociar la dirección
@@ -208,7 +208,7 @@ std::expected<SafeFD, int> accept_connection(const SafeFD& socket, sockaddr_in& 
   if (client_fd == -1) {
     return std::unexpected(errno);  // Error al aceptar la conexión
   }
-  return SafeFD(client_fd);  // Devolvemos el descriptor de archivo del cliente envuelto en SafeFD
+  return SafeFD(client_fd);  // Devolvemos el descriptor de archivo que representa la conexión con el cliente envuelto en SafeFD
 }
 
 // Obtiene la ruta completa del archivo a servir.
